@@ -27,16 +27,15 @@ import com.huaweicloud.dis.exception.DISClientException;
 import com.huaweicloud.dis.iface.api.protobuf.ProtobufUtils;
 import com.huaweicloud.dis.iface.app.request.CreateAppRequest;
 import com.huaweicloud.dis.iface.app.request.ListAppsRequest;
+import com.huaweicloud.dis.iface.app.response.CreateAppResult;
+import com.huaweicloud.dis.iface.app.response.DeleteAppResult;
 import com.huaweicloud.dis.iface.app.response.DescribeAppResult;
 import com.huaweicloud.dis.iface.app.response.ListAppsResult;
 import com.huaweicloud.dis.iface.data.request.*;
 import com.huaweicloud.dis.iface.data.response.*;
 import com.huaweicloud.dis.iface.stream.request.*;
 import com.huaweicloud.dis.iface.stream.response.*;
-import com.huaweicloud.dis.util.ExponentialBackOff;
-import com.huaweicloud.dis.util.RestClientWrapper;
-import com.huaweicloud.dis.util.SnappyUtils;
-import com.huaweicloud.dis.util.Utils;
+import com.huaweicloud.dis.util.*;
 import com.huaweicloud.dis.util.config.ICredentialsProvider;
 import com.huaweicloud.dis.util.encrypt.EncryptUtils;
 import org.apache.http.HttpRequest;
@@ -256,7 +255,7 @@ public class DISClient implements DIS
         
         Request<HttpRequest> request = new DefaultRequest<>(Constants.SERVICENAME);
         request.setHttpMethod(HttpMethodName.POST);
-        
+
         final String resourcePath =
             ResourcePathBuilder.standard()
                 .withProjectId(disConfig.getProjectId())
@@ -268,7 +267,7 @@ public class DISClient implements DIS
             request.addHeader("Content-Type", "application/x-protobuf; charset=utf-8");
             
             com.huaweicloud.dis.iface.api.protobuf.Message.PutRecordsRequest protoRequest = ProtobufUtils.toProtobufPutRecordsRequest(putRecordsParam);
-            
+
             com.huaweicloud.dis.iface.api.protobuf.Message.PutRecordsResult putRecordsResult = request(protoRequest.toByteArray(), request, com.huaweicloud.dis.iface.api.protobuf.Message.PutRecordsResult.class);            
             
             PutRecordsResult result = ProtobufUtils.toPutRecordsResult(putRecordsResult);
@@ -758,7 +757,7 @@ public class DISClient implements DIS
         CreateAppRequest createAppIdRequest = new CreateAppRequest();
         createAppIdRequest.setAppName(appName);
         setEndpoint(request, disConfig.getManagerEndpoint());
-        request(createAppIdRequest, request, null);
+        request(createAppIdRequest, request, CreateAppResult.class);
     }
     
     public void deleteApp(String appName)
@@ -777,7 +776,7 @@ public class DISClient implements DIS
             .build();
         request.setResourcePath(resourcePath);
         setEndpoint(request, disConfig.getManagerEndpoint());
-        request(null, request, null);
+        request(null, request, DeleteAppResult.class);
     }
 
     @Override

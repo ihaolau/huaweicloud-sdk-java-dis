@@ -26,7 +26,6 @@ import com.huaweicloud.dis.http.exception.RestClientResponseException;
 import com.huaweicloud.dis.http.exception.UnknownHttpStatusCodeException;
 import org.apache.http.HttpRequest;
 import org.apache.http.NoHttpResponseException;
-import org.apache.http.conn.ConnectTimeoutException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -257,9 +256,10 @@ public class RestClientWrapper
     protected boolean isRetriableSendException(Throwable t, Request<HttpRequest> request)
     {
         // 对于连接超时/网络闪断/Socket异常/服务端5xx错误进行重试
-        return t instanceof ConnectTimeoutException || t instanceof NoHttpResponseException
+        return t instanceof NoHttpResponseException
                 || t instanceof SocketException || t instanceof SSLException
-                || (t instanceof SocketTimeoutException && request.getHttpMethod() == HttpMethodName.GET)
+                || (t instanceof SocketTimeoutException &&
+                    (t.getMessage().contains("connect timed out") || t.getMessage().contains("Read timed out") && request.getHttpMethod() == HttpMethodName.GET))
                 || (t instanceof RestClientResponseException && ((RestClientResponseException) t).getRawStatusCode() / 100 == 5)
                 || (t.getCause() != null && isRetriableSendException(t.getCause(), request));
     }

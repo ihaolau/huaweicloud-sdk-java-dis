@@ -1,435 +1,285 @@
-/*
- * Copyright 2002-2010 the original author or authors.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 package com.huaweicloud.dis.util;
 
 import com.huaweicloud.dis.DISConfig;
 import com.huaweicloud.dis.core.http.HttpMethodName;
 import com.huaweicloud.dis.exception.DISClientException;
-import com.huaweicloud.dis.http.DefaultResponseErrorHandler;
-import com.huaweicloud.dis.http.HttpMessageConverterExtractor;
-import com.huaweicloud.dis.http.ResponseErrorHandler;
-import com.huaweicloud.dis.http.ResponseExtractor;
-import com.huaweicloud.dis.http.converter.ByteArrayHttpMessageConverter;
-import com.huaweicloud.dis.http.converter.HttpMessageConverter;
-import com.huaweicloud.dis.http.converter.StringHttpMessageConverter;
-import com.huaweicloud.dis.http.converter.json.JsonHttpMessageConverter;
-import com.huaweicloud.dis.http.converter.protobuf.ProtobufHttpMessageConverter;
-import com.huaweicloud.dis.http.exception.ResourceAccessException;
-import org.apache.http.HttpEntity;
-import org.apache.http.HttpHeaders;
-import org.apache.http.HttpRequest;
-import org.apache.http.HttpResponse;
-import org.apache.http.client.config.RequestConfig;
-import org.apache.http.client.methods.*;
-import org.apache.http.config.Registry;
-import org.apache.http.config.RegistryBuilder;
-import org.apache.http.conn.socket.ConnectionSocketFactory;
-import org.apache.http.conn.socket.LayeredConnectionSocketFactory;
-import org.apache.http.conn.socket.PlainConnectionSocketFactory;
-import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
-import org.apache.http.conn.ssl.SSLContexts;
-import org.apache.http.conn.ssl.TrustStrategy;
-import org.apache.http.conn.ssl.X509HostnameVerifier;
-import org.apache.http.entity.ByteArrayEntity;
-import org.apache.http.entity.ContentType;
-import org.apache.http.entity.StringEntity;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClientBuilder;
-import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
+import com.huaweicloud.dis.iface.api.protobuf.Message;
+import com.huaweicloud.dis.iface.app.response.CreateAppResult;
+import com.huaweicloud.dis.iface.app.response.DeleteAppResult;
+import com.huaweicloud.dis.iface.app.response.DescribeAppResult;
+import com.huaweicloud.dis.iface.app.response.ListAppsResult;
+import com.huaweicloud.dis.iface.data.response.*;
+import com.huaweicloud.dis.iface.stream.response.*;
+import okhttp3.Dispatcher;
+import okhttp3.OkHttpClient;
+import okhttp3.RequestBody;
+import okhttp3.logging.HttpLoggingInterceptor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import retrofit2.Call;
+import retrofit2.Response;
+import retrofit2.Retrofit;
+import retrofit2.converter.jackson.JacksonConverterFactory;
+import retrofit2.converter.protobuf.ProtoConverterFactory;
 
-import javax.net.ssl.SSLContext;
+import javax.net.ssl.*;
 import java.io.IOException;
-import java.security.KeyManagementException;
-import java.security.KeyStore;
-import java.security.KeyStoreException;
-import java.security.NoSuchAlgorithmException;
-import java.security.cert.CertificateException;
+import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
+import java.util.concurrent.TimeUnit;
 
-/**
- * Rest Client for RESTful API
- *
- * @since 1.3.0
- */
 public class RestClient
 {
-    
-    private final Logger logger = LoggerFactory.getLogger(RestClient.class);
-    
-    private final List<HttpMessageConverter<?>> messageConverters = new ArrayList<HttpMessageConverter<?>>();
-    
-    private ResponseErrorHandler errorHandler = new DefaultResponseErrorHandler();
-    
+    private static final Logger LOG = LoggerFactory.getLogger(RestClient.class);
+
+    private ICallMaker callMaker = null;
+
     private static RestClient restClient;
-    
-    private static CloseableHttpClient httpClient;
-    
-    private DISConfig disConfig;
-    
+
+    public OkHttpClient createClient(DISConfig disConfig)
+    {
+        Dispatcher dispatcher = new Dispatcher();
+        dispatcher.setMaxRequests(disConfig.getMaxTotal());
+        dispatcher.setMaxRequestsPerHost(disConfig.getMaxPerRoute());
+
+        OkHttpClient.Builder builder = new OkHttpClient.Builder().followRedirects(false)
+                .followSslRedirects(false)
+                .retryOnConnectionFailure(true)
+                .connectTimeout(disConfig.getConnectionTimeOut(), TimeUnit.MILLISECONDS)
+                .writeTimeout(disConfig.getSocketTimeOut(), TimeUnit.MILLISECONDS)
+                .readTimeout(disConfig.getSocketTimeOut(), TimeUnit.MILLISECONDS)
+                .dispatcher(dispatcher)
+                .hostnameVerifier(new TrustAllHostnameVerifier());
+
+        if (LOG.isDebugEnabled())
+        {
+            builder.addInterceptor(new HttpLoggingInterceptor().setLevel(HttpLoggingInterceptor.Level.BODY));
+        }
+
+        // 禁用客户端证书校验
+        if (!disConfig.getIsDefaultTrustedJksEnabled())
+        {
+            builder.sslSocketFactory(getSSLSocketFactory(), (X509TrustManager) getTrustManager()[0]);
+        }
+
+        return builder.build();
+    }
+
     private RestClient(DISConfig disConfig)
     {
-        this.disConfig = disConfig;
-        
-        this.messageConverters.add(new JsonHttpMessageConverter());
-        this.messageConverters.add(new ProtobufHttpMessageConverter());
-        this.messageConverters.add(new StringHttpMessageConverter());
-        this.messageConverters.add(new ByteArrayHttpMessageConverter());
+        OkHttpClient instance = createClient(disConfig);
+        Retrofit retrofit = new Retrofit.Builder().baseUrl(disConfig.getEndpoint())
+                .addConverterFactory(ProtoConverterFactory.create())
+                .addConverterFactory(JacksonConverterFactory.create())
+                .client(instance)
+                .build();
+
+        callMaker = retrofit.create(ICallMaker.class);
     }
-    
-    private void init()
-    {
-        httpClient = getHttpClient();
-    }
-    
+
+
     public synchronized static RestClient getInstance(DISConfig disConfig)
     {
         if (restClient == null)
         {
             restClient = new RestClient(disConfig);
-            restClient.init();
         }
-        
+
         return restClient;
     }
-    
-    /**
-     * Set the message body converters to use.
-     * <p>
-     * These converters are used to convert from and to HTTP requests and responses.
-     * 
-     * @param messageConverters List of message converters.
-     */
-    public void setMessageConverters(List<HttpMessageConverter<?>> messageConverters)
-    {
-        if (messageConverters != null && messageConverters.size() > 0)
-        {
-            // Take getMessageConverters() List as-is when passed in here
-            if (this.messageConverters != messageConverters)
-            {
-                this.messageConverters.clear();
-                this.messageConverters.addAll(messageConverters);
-            }
-        }
-    }
-    
-    /**
-     * Return the message body converters.
-     * 
-     * @return List of message converters.
-     */
-    public List<HttpMessageConverter<?>> getMessageConverters()
-    {
-        return this.messageConverters;
-    }
-    
-    /**
-     * Set the error handler.
-     * <p>
-     * By default, RestTemplate uses a {@link DefaultResponseErrorHandler}.
-     * 
-     * @param errorHandler response error handler.
-     */
-    public void setErrorHandler(ResponseErrorHandler errorHandler)
-    {
-        if (errorHandler != null)
-        {
-            this.errorHandler = errorHandler;
-        }
-    }
-    
-    /**
-     * Return the error handler.
-     * 
-     * @return response error handler.
-     */
-    public ResponseErrorHandler getErrorHandler()
-    {
-        return this.errorHandler;
-    }
-    
-    public <T> T exchange(String url, HttpMethodName httpMethod, Map<String, String> headers, Object requestContent,
-        Class<T> responseClazz)
-    {
-        switch (httpMethod)
-        {
-            case PUT:
-                return put(url, responseClazz, headers, requestContent);
-            case POST:
-                return post(url, responseClazz, headers, requestContent);
-            case GET:
-                return get(url, responseClazz, headers);
-            case DELETE:
-                delete(url, headers);
-                
-                return null;
-            default:
-                throw new DISClientException("unimplemented.");
-        }
-    }
-    
-    /*
-     * HttpClient Get Request
-     * 
-     */
-    public <T> T get(String url, Class<T> responseClazz, Map<String, String> headers)
-    {
-        HttpGet request = new HttpGet(url);
-        request = this.setHeaders(request, headers);
-        
-        HttpMessageConverterExtractor<T> responseExtractor =
-            new HttpMessageConverterExtractor<T>(responseClazz, getMessageConverters());
-        return execute(request, responseExtractor);
-    }
-    
-    public <T> T getForObject(String url, Class<T> responseClazz)
-    {
-        return get(url, responseClazz, null);
-    }
-    
-    public <T> T post(String url, Class<T> responseClazz, Map<String, String> headers, Object requestBody)
-    {
-        return post(url, responseClazz, headers, buildHttpEntity(requestBody));
-    }
-    
-    public <T> T post(String url, Class<T> responseClazz, Map<String, String> headers, HttpEntity entity)
-    {
-        HttpPost request = new HttpPost(url);
-        request = this.setHeaders(request, headers);
-        
-        request.setEntity(entity);
-        
-        HttpMessageConverterExtractor<T> responseExtractor =
-            new HttpMessageConverterExtractor<T>(responseClazz, getMessageConverters());
-        return execute(request, responseExtractor);
-    }
-    
-    public <T> T put(String url, Class<T> responseClazz, Map<String, String> headers, Object requestBody)
-    {
-        return put(url, responseClazz, headers, buildHttpEntity(requestBody));
-    }
-    
-    public <T> T put(String url, Class<T> responseClazz, Map<String, String> headers, HttpEntity entity)
-    {
-        HttpPut request = new HttpPut(url);
-        request = this.setHeaders(request, headers);
-        
-        request.setEntity(entity);
-        
-        HttpMessageConverterExtractor<T> responseExtractor =
-            new HttpMessageConverterExtractor<T>(responseClazz, getMessageConverters());
-        return execute(request, responseExtractor);
-        
-    }
-    
-    public void delete(String url, Map<String, String> headers)
-    {
-        
-        HttpDelete request = new HttpDelete(url);
-        request = this.setHeaders(request, headers);
-        
-        execute(request, null);
-    }
-    
-    /**
-     * 发送请求并处理响应
-     * 
-     * @param request 请求体
-     * @param responseExtractor 响应解析器
-     * @param <T> Generic type
-     * @return 响应体
-     */
-    protected <T> T execute(final HttpUriRequest request, ResponseExtractor<T> responseExtractor)
-    {
-        HttpResponse response;
-        try
-        {
-            response = httpClient.execute(request);
-            handleResponse(response);
-            
-            if (responseExtractor != null)
-            {
-                return responseExtractor.extractData(response);
-            }
-            else
-            {
-                return null;
-            }
-        }
-        catch (IOException ex)
-        {
-            String resource = request.getURI().toString();
-            String query = request.getURI().getRawQuery();
-            resource = (query != null ? resource.substring(0, resource.indexOf(query) - 1) : resource);
-            throw new ResourceAccessException(
-                "I/O error on " + request.getMethod() + " request for \"" + resource + "\": " + ex.getMessage(), ex);
-        }
-        
-    }
-    
-    /**
-     * Handle the given response, performing appropriate logging and invoking the {@link ResponseErrorHandler} if
-     * necessary.
-     * <p>
-     * Can be overridden in subclasses.
-     * 
-     * @param response the resulting {@link HttpResponse}
-     * @throws IOException if propagated from {@link ResponseErrorHandler}
-     * @since 1.3.0
-     * @see #setErrorHandler
-     */
-    protected void handleResponse(HttpResponse response)
-        throws IOException
-    {
-        ResponseErrorHandler errorHandler = getErrorHandler();
-        boolean hasError = errorHandler.hasError(response);
-        
-        if (hasError)
-        {
-            errorHandler.handleError(response);
-        }
-    }
-    
-    /**
-     * 设置请求头域
-     * 
-     * @param request 请求体
-     * @param headers 需要添加到请求体重的头域
-     * @return 修改后的请求体
-     */
-    private <T> T setHeaders(T request, Map<String, String> headers)
-    {
-        if (headers != null)
-        {
-            for (Entry<String, String> entry : headers.entrySet())
-            {
-                ((HttpRequest)request).setHeader(entry.getKey(), entry.getValue());
-            }
-        }
-        else
-        {
-            ((HttpRequest)request).setHeader(HttpHeaders.CONTENT_TYPE, ContentType.APPLICATION_JSON.toString());
-        }
-        
-        return request;
-    }
-    
-    private HttpEntity buildHttpEntity(Object data)
-    {
-        
-        // TODO 使用 HttpMessageConverter 来实现
-        if (data instanceof byte[])
-        {
-            return new ByteArrayEntity((byte[])data);
-        }
-        else if (data instanceof String || data instanceof Integer)
-        {
-            return new StringEntity(data.toString(), "UTF-8");
-        }
-        else
-        {
-            return new StringEntity(JsonUtils.objToJson(data), "UTF-8");
-        }
-    }
-    
-    private CloseableHttpClient getHttpClient()
-    {
-        RegistryBuilder<ConnectionSocketFactory> registryBuilder = RegistryBuilder.<ConnectionSocketFactory> create();
-        registryBuilder.register("http", new PlainConnectionSocketFactory());
 
-        X509HostnameVerifier verifier = null;
-        // 指定信任密钥存储对象和连接套接字工厂
+    private static SSLSocketFactory getSSLSocketFactory()
+    {
         try
         {
-            KeyStore trustStore = KeyStore.getInstance(KeyStore.getDefaultType());
-            boolean isDefaultTrustedJKSEnabled = disConfig.getIsDefaultTrustedJksEnabled();
-            SSLContext sslContext = null;
-            
-            // 启用客户端证书校验
-            if (isDefaultTrustedJKSEnabled)
+            SSLContext sslContext = SSLContext.getInstance("TLS");
+            sslContext.init(null, getTrustManager(), new SecureRandom());
+            return sslContext.getSocketFactory();
+        }
+        catch (Exception e)
+        {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * 忽略对服务器端证书的校验
+     *
+     * @return
+     */
+    private static TrustManager[] getTrustManager()
+    {
+        return new TrustManager[]{new X509TrustManager()
+        {
+            @Override
+            public void checkClientTrusted(X509Certificate[] chain, String authType)
             {
-                sslContext = SSLContexts.custom().useTLS().loadTrustMaterial(trustStore, null).build();
+            }
+
+            @Override
+            public void checkServerTrusted(X509Certificate[] chain, String authType)
+            {
+            }
+
+            @Override
+            public X509Certificate[] getAcceptedIssuers()
+            {
+                return new X509Certificate[]{};
+            }
+        }};
+    }
+
+    /**
+     * 信任所有主机名
+     */
+    private static class TrustAllHostnameVerifier implements HostnameVerifier
+    {
+        @Override
+        public boolean verify(String hostname, SSLSession session)
+        {
+            return true;
+        }
+    }
+
+    public <T> T request(Call<T> call)
+    {
+        Response response;
+        try
+        {
+            response = call.execute();
+            if (response.isSuccessful())
+            {
+                return response.body() == null ? null : (T) response.body();
             }
             else
             {
-                // 信任任何链接
-                TrustStrategy anyTrustStrategy = new TrustStrategy()
-                {
-                    @Override
-                    public boolean isTrusted(X509Certificate[] x509Certificates, String s)
-                        throws CertificateException
-                    {
-                        return true;
-                    }
-                };
-                sslContext = SSLContexts.custom().useTLS().loadTrustMaterial(trustStore, anyTrustStrategy).build();
-                verifier = SSLConnectionSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER;
+                throw new DISClientException(response.code() + " " + response.message()
+                        + (response.errorBody() == null ? "" : " : " + response.errorBody().string()));
             }
-            
-            LayeredConnectionSocketFactory sslSF = new SSLConnectionSocketFactory(sslContext,
-                new String[] {"TLSv1.2", "TLSv1.1"}, null, verifier);
-            registryBuilder.register("https", sslSF);
         }
-        catch (KeyStoreException e)
+        catch (IOException e)
         {
-            throw new RuntimeException(e);
+            throw new DISClientException(e);
         }
-        catch (KeyManagementException e)
-        {
-            throw new RuntimeException(e);
-        }
-        catch (NoSuchAlgorithmException e)
-        {
-            throw new RuntimeException(e);
-        }
-        finally
-        {
-            // if (null != in)
-            // {
-            // try
-            // {
-            // in.close();
-            // }
-            // catch (IOException e)
-            // {
-            // log.error(e.getMessage());
-            // }
-            // }
-        }
-        RequestConfig requestConfig = RequestConfig.custom().setSocketTimeout(disConfig.getSocketTimeOut()).setConnectTimeout(disConfig.getConnectionTimeOut()).build();
-        Registry<ConnectionSocketFactory> registry = registryBuilder.build();
-        // 设置连接管理器
-        PoolingHttpClientConnectionManager connManager = new PoolingHttpClientConnectionManager(registry);
-        connManager.setDefaultMaxPerRoute(disConfig.getMaxPerRoute());
-        connManager.setMaxTotal(disConfig.getMaxTotal());
-        // connManager.setDefaultConnectionConfig(connConfig);
-        // connManager.setDefaultSocketConfig(socketConfig);
-        
-        // 构建客户端
-        return HttpClientBuilder.create()
-            .setConnectionManager(connManager)
-            .setRetryHandler(new HttpRequestRetryHandler(3, true))
-            .setDefaultRequestConfig(requestConfig)
-            .build();
     }
-    
+
+    public <T> T exchange(String url, HttpMethodName httpMethod, Map<String, String> headers, Object requestContent,
+                          Class<T> responseClazz)
+    {
+        if (PutRecordsResult.class.equals(responseClazz))
+        {
+            // json发送数据
+            return (T) request(callMaker.putRecords(url, headers, getRequestBody(requestContent)));
+        }
+        else if (GetRecordsResult.class.equals(responseClazz))
+        {
+            // json获取数据
+            return (T) request(callMaker.getRecords(url, headers));
+        }
+        else if (Message.PutRecordsResult.class.equals(responseClazz))
+        {
+            // protobuf发送数据
+            return (T) request(callMaker.putRecordsProto(url, headers, getRequestBody(requestContent)));
+        }
+        else if (Message.GetRecordsResult.class.equals(responseClazz))
+        {
+            // protobuf下载数据
+            return (T) request(callMaker.getRecordsProto(url, headers));
+        }
+        else if (GetPartitionCursorResult.class.equals(responseClazz))
+        {
+            // 获取迭代器
+            return (T) request(callMaker.getPartitionCursor(url, headers));
+        }
+        else if (CommitCheckpointResult.class.equals(responseClazz))
+        {
+            // 提交checkpoint
+            return (T) request(callMaker.commitCheckpoint(url, headers, getRequestBody(requestContent)));
+        }
+        else if (GetCheckpointResult.class.equals(responseClazz))
+        {
+            // 获取checkpoint
+            return (T) request(callMaker.getCheckpoint(url, headers));
+        }
+        else if (DescribeStreamResult.class.equals(responseClazz))
+        {
+            // 查询通道详情
+            return (T) request(callMaker.describeStream(url, headers));
+        }
+        else if (CreateStreamResult.class.equals(responseClazz))
+        {
+            // 创建通道
+            return (T) request(callMaker.createStream(url, headers, getRequestBody(requestContent)));
+        }
+        else if (DeleteStreamResult.class.equals(responseClazz))
+        {
+            // 删除通道
+            return (T) request(callMaker.deleteStream(url, headers));
+        }
+        else if (ListStreamsResult.class.equals(responseClazz))
+        {
+            // 通道列表
+            return (T) request(callMaker.listStreams(url, headers));
+        }
+        else if (CreateAppResult.class.equals(responseClazz))
+        {
+            // 创建APP
+            return (T) request(callMaker.createApp(url, headers, getRequestBody(requestContent)));
+        }
+        else if (ListAppsResult.class.equals(responseClazz))
+        {
+            // 查询APP列表
+            return (T) request(callMaker.listApps(url, headers));
+        }
+        else if (DeleteAppResult.class.equals(responseClazz))
+        {
+            // 删除APP
+            return (T) request(callMaker.deleteApp(url, headers));
+        }
+        else if (DescribeAppResult.class.equals(responseClazz))
+        {
+            // 查询APP详情
+            return (T) request(callMaker.describeApp(url, headers));
+        }
+        else if (UpdatePartitionCountResult.class.equals(responseClazz))
+        {
+            // 更新分区数量
+            return (T) request(callMaker.updatePartitionCountResult(url, headers, getRequestBody(requestContent)));
+        }
+        else if (FileUploadResult.class.equals(responseClazz))
+        {
+            // 获取文件状态
+            return (T) request(callMaker.getFileUploadResult(url, headers));
+        }
+
+        throw new DISClientException("unimplemented.");
+    }
+
+    public RequestBody getRequestBody(Object requestContent)
+    {
+        RequestBody body;
+        if (requestContent != null)
+        {
+            if (requestContent instanceof byte[])
+            {
+                body = RequestBody.create(null, (byte[]) requestContent);
+            }
+            else if (requestContent instanceof String || requestContent instanceof Integer)
+            {
+                body = RequestBody.create(null, Utils.encodingBytes(requestContent.toString()));
+            }
+            else
+            {
+                String reqJson = JsonUtils.objToJson(requestContent);
+                body = RequestBody.create(null, Utils.encodingBytes(reqJson));
+            }
+        }
+        else
+        {
+            body = RequestBody.create(null, "".getBytes());
+        }
+        return body;
+    }
+
 }
