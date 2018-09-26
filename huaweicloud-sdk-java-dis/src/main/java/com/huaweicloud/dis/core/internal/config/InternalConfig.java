@@ -16,20 +16,19 @@
 
 package com.huaweicloud.dis.core.internal.config;
 
+import com.fasterxml.jackson.databind.JsonMappingException;
+import com.huaweicloud.dis.core.util.ClassLoaderHelper;
+import com.huaweicloud.dis.core.util.json.Jackson;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.apache.http.annotation.Immutable;
+
 import java.io.File;
 import java.io.IOException;
 import java.net.URL;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
-
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
-import org.apache.http.annotation.Immutable;
-
-import com.fasterxml.jackson.databind.JsonMappingException;
-import com.huaweicloud.dis.core.util.ClassLoaderHelper;
-import com.huaweicloud.dis.core.util.json.Jackson;
 
 /**
  * Internal configuration for Java SDK.
@@ -145,6 +144,19 @@ public class InternalConfig {
         return target;
     }
 
+    static InternalConfigJsonHelper loadfromDefault() throws IOException
+    {
+        String defaultConfig = "{\n" +
+                "  \"defaultSigner\": {\n" +
+                "    \"signerType\": \"DefaultSignerType\"\n" +
+                "  },\n" +
+                "  \"serviceSigners\": [],\n" +
+                "  \"regionSigners\": [],\n" +
+                "  \"serviceRegionSigners\": []\n" +
+                "}";
+        return Jackson.getObjectMapper().readValue(defaultConfig, InternalConfigJsonHelper.class);
+    }
+
     /**
      * Loads and returns the Java SDK internal configuration from the
      * classpath.
@@ -154,7 +166,8 @@ public class InternalConfig {
         if (url == null) {
             url = ClassLoaderHelper.getResource(DEFAULT_CONFIG_RESOURCE, InternalConfig.class);
         }
-        InternalConfigJsonHelper config = loadfrom(url);
+//        InternalConfigJsonHelper config = loadfrom(url);
+        InternalConfigJsonHelper config = url == null ? loadfromDefault() : loadfrom(url);
         InternalConfigJsonHelper configOverride;
         URL overrideUrl = ClassLoaderHelper.getResource(File.separator + CONFIG_OVERRIDE_RESOURCE, InternalConfig.class);
         if (overrideUrl == null) {

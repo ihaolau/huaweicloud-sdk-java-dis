@@ -57,16 +57,28 @@
 		</dependency>
 
 		<!-- HttpClient -->
-		<dependency>
-			<groupId>org.apache.httpcomponents</groupId>
-			<artifactId>httpmime</artifactId>
-			<version>4.5.2</version>
-		</dependency>
+		<!--<dependency>-->
+			<!--<groupId>org.apache.httpcomponents</groupId>-->
+			<!--<artifactId>httpmime</artifactId>-->
+			<!--<version>4.5.2</version>-->
+		<!--</dependency>-->
 		<dependency>
 			<groupId>org.apache.httpcomponents</groupId>
 			<artifactId>httpcore</artifactId>
 			<version>4.4.4</version>
 		</dependency>
+
+        <dependency>
+            <groupId>commons-logging</groupId>
+            <artifactId>commons-logging</artifactId>
+            <version>1.2</version>
+        </dependency>
+        <dependency>
+            <groupId>commons-codec</groupId>
+            <artifactId>commons-codec</artifactId>
+            <version>1.9</version>
+        </dependency>
+
 		<!--<dependency>-->
 			<!--<groupId>org.apache.httpcomponents</groupId>-->
 			<!--<artifactId>httpasyncclient</artifactId>-->
@@ -79,11 +91,11 @@
 			<version>1.7.24</version>
 		</dependency>
 
-		<!--<dependency>-->
-			<!--<groupId>com.squareup.okhttp3</groupId>-->
-			<!--<artifactId>okhttp</artifactId>-->
-			<!--<version>3.9.1</version>-->
-		<!--</dependency>-->
+		<dependency>
+			<groupId>com.squareup.okhttp3</groupId>
+			<artifactId>okhttp</artifactId>
+			<version>3.10.0</version>
+		</dependency>
 		<dependency>
 			<groupId>com.squareup.okhttp3</groupId>
 			<artifactId>logging-interceptor</artifactId>
@@ -141,7 +153,7 @@
 			<scope>test</scope>
 		</dependency>
 	</dependencies>
-    
+
         <build>
             <plugins>
                 <plugin>

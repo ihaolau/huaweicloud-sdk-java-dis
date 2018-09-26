@@ -30,7 +30,7 @@ public class VersionUtils
     
     private static final Logger LOG = LoggerFactory.getLogger(VersionUtils.class);
     
-    static final String VERSION_FILE = "version.properties";
+    static final String VERSION_FILE = "version1.properties";
     
     static final String DEFAULT_VERSION = "unknown";
     
@@ -77,8 +77,8 @@ public class VersionUtils
         {
             ConfigurationUtils versionConfiguation = new ConfigurationUtils(VERSION_FILE);
             
-            version = versionConfiguation.getProperty("version", "");
-            platform = versionConfiguation.getProperty("platform", "");
+            version = versionConfiguation.getProperty("version", "1.3.1-SNAPSHOT");
+            platform = versionConfiguation.getProperty("platform", "android");
         }
         catch (Exception e)
         {
